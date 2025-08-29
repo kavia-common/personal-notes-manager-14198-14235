@@ -10,7 +10,13 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # Environment variables (do not write .env here; orchestrator provides)
 SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'insecure-default-change-me')
 DEBUG = os.getenv('DJANGO_DEBUG', 'True').lower() in ('1', 'true', 'yes')
-ALLOWED_HOSTS = os.getenv('DJANGO_ALLOWED_HOSTS', '.kavia.ai,localhost,127.0.0.1,testserver').split(',')
+# In preview/dev, be permissive to avoid host mismatch issues behind proxies.
+_default_hosts = '.kavia.ai,localhost,127.0.0.1,testserver'
+ALLOWED_HOSTS = os.getenv('DJANGO_ALLOWED_HOSTS', _default_hosts).split(',')
+if DEBUG:
+    # Ensure permissive wildcard is included during preview/dev to avoid host header issues.
+    if '*' not in ALLOWED_HOSTS:
+        ALLOWED_HOSTS = ['*'] + [h for h in ALLOWED_HOSTS if h != '*']
 
 # Application definition
 INSTALLED_APPS = [
@@ -108,6 +114,27 @@ USE_X_FORWARDED_HOST = True
 X_FRAME_OPTIONS = 'ALLOWALL'
 
 # CSRF settings suitable for preview; allow all origins via CORS and trust common hosts
-CSRF_TRUSTED_ORIGINS = [f"https://{h}" for h in ALLOWED_HOSTS if h and h != '127.0.0.1' and not h.startswith('.')]
+# Django 5.x requires scheme in CSRF_TRUSTED_ORIGINS. Handle wildcards and common preview domains.
+_csrf_trusted = set()
+for host in ALLOWED_HOSTS:
+    if not host or host == '127.0.0.1':
+        continue
+    if host == '*':
+        # When wildcard is used (DEBUG/preview), trust common preview domains explicitly
+        _csrf_trusted.update({
+            'https://localhost', 'http://localhost',
+            'https://127.0.0.1', 'http://127.0.0.1',
+            'https://*.kavia.ai', 'http://*.kavia.ai',
+        })
+        continue
+    if host.startswith('.'):
+        # Convert dotted domain to wildcard pattern for CSRF trusted origins
+        domain = host.lstrip('.')
+        _csrf_trusted.add(f'https://*.{domain}')
+        _csrf_trusted.add(f'http://*.{domain}')
+    else:
+        _csrf_trusted.add(f'https://{host}')
+        _csrf_trusted.add(f'http://{host}')
+CSRF_TRUSTED_ORIGINS = sorted(_csrf_trusted)
 SESSION_COOKIE_SECURE = os.getenv('SESSION_COOKIE_SECURE', 'False').lower() in ('1', 'true', 'yes')
 CSRF_COOKIE_SECURE = os.getenv('CSRF_COOKIE_SECURE', 'False').lower() in ('1', 'true', 'yes')

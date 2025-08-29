@@ -15,15 +15,19 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 from django.contrib import admin
+from django.http import HttpResponsePermanentRedirect
 from django.urls import path, include, re_path
 from rest_framework import permissions
 from drf_yasg.views import get_schema_view
 from drf_yasg import openapi
 from django.views.decorators.csrf import csrf_exempt
+from api.views import health as api_health
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/', include('api.urls')),
+    # Project-level health to make liveness checks easy at /health
+    path('health/', api_health, name='root-health'),
 ]
 
 schema_view = get_schema_view(
@@ -60,7 +64,12 @@ def dynamic_schema_view(request, *args, **kwargs):
     )
     return view.with_ui('swagger', cache_timeout=0)(request)
 
+# Redirect root "/" to docs UI, so preview shows API docs by default.
+def root_redirect(request):
+    return HttpResponsePermanentRedirect('/docs/')
+
 urlpatterns += [
+    path('', root_redirect, name='root'),
     re_path(r'^docs/$', dynamic_schema_view, name='schema-swagger-ui'),
     re_path(r'^redoc/$', schema_view.with_ui('redoc', cache_timeout=0), name='schema-redoc'),
     re_path(r'^swagger\.json$', schema_view.without_ui(cache_timeout=0), name='schema-json'),
